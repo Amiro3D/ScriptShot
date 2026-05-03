@@ -1,0 +1,47 @@
+name: Take full-page screenshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL of the page'
+        required: true
+      callback:
+        description: 'Apps Script web app URL that receives the image'
+        required: true
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install puppeteer
+      - name: Take screenshot and send to Apps Script
+        run: |
+          node -e "
+          const puppeteer = require('puppeteer');
+          (async () => {
+            const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
+            const page = await browser.newPage();
+            await page.setViewport({ width: 1280, height: 800 });
+            await page.goto('${{ github.event.inputs.url }}', { waitUntil: 'networkidle2' });
+            const base64 = await page.screenshot({ fullPage: true, encoding: 'base64' });
+            await browser.close();
+
+            const payload = JSON.stringify({
+              image: base64,
+              url: '${{ github.event.inputs.url }}'
+            });
+
+            await fetch('${{ github.event.inputs.callback }}', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: payload
+            });
+
+            console.log('Screenshot sent successfully');
+          })();
+          " 
