@@ -26,7 +26,7 @@ jobs:
           node-version: 20
       - run: npm install puppeteer
 
-      - name: Capture full-page screenshot
+      - name: Capture high-resolution full-page screenshot
         run: |
           node -e "
           const puppeteer = require('puppeteer');
@@ -34,7 +34,12 @@ jobs:
           (async () => {
             const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
             const page = await browser.newPage();
-            await page.setViewport({ width: 1280, height: 800 });
+            // Set high resolution viewport with 2x device scale factor
+            await page.setViewport({
+              width: 1920,
+              height: 1080,         // height doesn't matter for fullPage
+              deviceScaleFactor: 2   // 2x retina resolution
+            });
             await page.goto('${{ inputs.url }}', { waitUntil: 'networkidle2', timeout: 60000 });
             const buffer = await page.screenshot({ fullPage: true });
             fs.writeFileSync('/tmp/screenshot.png', buffer);
