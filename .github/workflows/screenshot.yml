@@ -13,6 +13,10 @@ on:
         description: 'Unique request ID'
         required: true
 
+# Grant write access to contents (required for releases)
+permissions:
+  contents: write
+
 jobs:
   screenshot:
     runs-on: ubuntu-latest
