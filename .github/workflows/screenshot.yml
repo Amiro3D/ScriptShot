@@ -4,14 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'URL of the page'
+        description: 'Page URL'
         required: true
       callback:
-        description: 'Apps Script web app URL that receives the image'
+        description: 'Apps Script web app URL for result'
+        required: true
+      requestId:
+        description: 'Unique request ID'
         required: true
 
 jobs:
-  capture:
+  screenshot:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,29 +22,68 @@ jobs:
         with:
           node-version: 20
       - run: npm install puppeteer
-      - name: Take screenshot and send to Apps Script
+
+      - name: Capture full-page screenshot
         run: |
           node -e "
           const puppeteer = require('puppeteer');
+          const fs = require('fs');
           (async () => {
             const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
             const page = await browser.newPage();
             await page.setViewport({ width: 1280, height: 800 });
-            await page.goto('${{ github.event.inputs.url }}', { waitUntil: 'networkidle2' });
-            const base64 = await page.screenshot({ fullPage: true, encoding: 'base64' });
+            await page.goto('${{ inputs.url }}', { waitUntil: 'networkidle2', timeout: 60000 });
+            const buffer = await page.screenshot({ fullPage: true });
+            fs.writeFileSync('/tmp/screenshot.png', buffer);
             await browser.close();
+          })();
+          "
 
-            const payload = JSON.stringify({
-              image: base64,
-              url: '${{ github.event.inputs.url }}'
+      - name: Create Release and Upload Screenshot
+        uses: actions/github-script@v7
+        env:
+          CALLBACK_URL: ${{ inputs.callback }}
+          REQUEST_ID: ${{ inputs.requestId }}
+          URL: ${{ inputs.url }}
+        with:
+          script: |
+            const fs = require('fs');
+            const image = fs.readFileSync('/tmp/screenshot.png');
+
+            // Create a new release
+            const release = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: 'screenshot-' + context.runId,
+              name: 'Screenshot ' + new Date().toISOString(),
+              body: 'Temporary screenshot for ' + process.env.URL
             });
 
-            await fetch('${{ github.event.inputs.callback }}', {
+            // Upload the image as an asset
+            const asset = await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.data.id,
+              name: 'screenshot.png',
+              data: image,
+              headers: {
+                'content-type': 'image/png',
+                'content-length': image.length
+              }
+            });
+
+            const assetUrl = asset.data.browser_download_url;
+            const assetId = asset.data.id;
+
+            // Notify the Apps Script web app
+            await fetch(process.env.CALLBACK_URL, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: payload
+              body: JSON.stringify({
+                requestId: process.env.REQUEST_ID,
+                assetUrl: assetUrl,
+                assetId: assetId,
+                releaseId: release.data.id
+              })
             });
-
-            console.log('Screenshot sent successfully');
-          })();
-          " 
+            console.log('Callback sent successfully');
