@@ -7,13 +7,12 @@ on:
         description: 'Page URL'
         required: true
       callback:
-        description: 'Apps Script web app URL for result'
+        description: 'Apps Script callback URL'
         required: true
       requestId:
         description: 'Unique request ID'
         required: true
 
-# Grant write access to contents (required for releases)
 permissions:
   contents: write
 
@@ -48,22 +47,22 @@ jobs:
         env:
           CALLBACK_URL: ${{ inputs.callback }}
           REQUEST_ID: ${{ inputs.requestId }}
-          URL: ${{ inputs.url }}
+          TARGET_URL: ${{ inputs.url }}
         with:
           script: |
             const fs = require('fs');
             const image = fs.readFileSync('/tmp/screenshot.png');
 
-            // Create a new release
+            // Create a release
             const release = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: 'screenshot-' + context.runId,
               name: 'Screenshot ' + new Date().toISOString(),
-              body: 'Temporary screenshot for ' + process.env.URL
+              body: 'Temporary screenshot for ' + process.env.TARGET_URL
             });
 
-            // Upload the image as an asset
+            // Upload asset
             const asset = await github.rest.repos.uploadReleaseAsset({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -76,18 +75,16 @@ jobs:
               }
             });
 
-            const assetUrl = asset.data.browser_download_url;
-            const assetId = asset.data.id;
-
-            // Notify the Apps Script web app
+            // Send callback with all needed data
             await fetch(process.env.CALLBACK_URL, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 requestId: process.env.REQUEST_ID,
-                assetUrl: assetUrl,
-                assetId: assetId,
-                releaseId: release.data.id
+                assetUrl: asset.data.browser_download_url,
+                assetId: asset.data.id,
+                releaseId: release.data.id,
+                pageUrl: process.env.TARGET_URL
               })
             });
             console.log('Callback sent successfully');
